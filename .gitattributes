@@ -1,0 +1,7 @@
+* text eol=LF
+*.inl text eol=LF
+*.h text eol=LF
+*.hpp text eol=LF
+*.c text eol=LF
+*.cpp text eol=LF
+*.bin filter=lfs diff=lfs merge=lfs -text

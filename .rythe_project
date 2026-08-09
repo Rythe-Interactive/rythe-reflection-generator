@@ -1,0 +1,15 @@
+local project = {
+    alias = "rrc",
+    namespace = "rrc",
+    types = { "tool" },
+    additional_types = { "test" },
+    dependencies = {
+        "public rythe/rythe-standard-library",
+        "private third_party/clang-c:header-only"
+    },
+    defines = { "RYTHE_INTERNAL" },
+    additional_link_targets = { "libclang" },
+    pch_file_name = "./pch"
+}
+
+return project
