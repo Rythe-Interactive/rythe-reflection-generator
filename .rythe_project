@@ -12,4 +12,13 @@ local project = {
     pch_file_name = "./pch"
 }
 
+function project.init(proj, ctx)
+    proj.debug_args = {
+        "--root=\"" .. os.realpath(proj.location) .. "\"",
+        "--files=*.hpp"
+    }
+    
+    return proj
+end
+
 return project

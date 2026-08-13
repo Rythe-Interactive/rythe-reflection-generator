@@ -4,21 +4,22 @@
 #include <rsl/string>
 #include <rsl/threading>
 
-int main(int, char* argv[])
+int main(int argc, char* argv[])
 {
     rsl::current_thread::set_name("Main thread");
 
-    rsl::cli_parser cmdl(argv);
+    rsl::cli_parser cmdl;
+    cmdl.parse(argc, argv);
 
-    rsl::dynamic_set<rsl::dynamic_string> patterns;
+    rsl::dynamic_set<rsl::string_view> patterns;
 
-    for (auto& param : cmdl.params("input"))
+    for (auto& param : cmdl.params("files"))
     {
-        rsl::log::debug("\t{} : {}", param.first, param.second);
-        patterns.insert(rsl::string_view::from_buffer(param.second.c_str(), param.second.size()));
+        rsl::log::debug("{}", param);
+        patterns.insert(param);
     }
 
-    rsl::dynamic_string outputPath = rsl::dynamic_string::from_string_length(cmdl("output").str().c_str());
+    rsl::string_view outputPath = cmdl("root");
 
     rsl::log::debug("{}", outputPath);
 
