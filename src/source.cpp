@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
 #endif
 
     rsl::cli_parser cmdl;
-    cmdl.set_command_usage("rrc [options] [<file> ...]\n\noptions:");
+    cmdl.set_command_usage("rrg [options] [<file> ...]\n\noptions:");
     cmdl.add_param({ "help", "h" }, true, "  --{:<17}\tDisplay help.");
     cmdl.add_param("version", true, "  --{:<17}\tDisplay version.");
     cmdl.add_param({ "verbose", "v" }, true, "  --{:<17}\tUse verbose logging.");
@@ -30,7 +30,7 @@ int main(int argc, char* argv[])
 
     if (cmdl.has_flag("version"))
     {
-        rsl::log::undecorated_info("rythe-reflection-compiler v{}", 0);
+        rsl::log::undecorated_info("rythe-reflection-generator v{}", 0);
         return 0;
     }
 

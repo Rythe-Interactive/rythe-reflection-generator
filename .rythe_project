@@ -1,6 +1,6 @@
 local project = {
-    alias = "rrc",
-    namespace = "rrc",
+    alias = "rrg",
+    namespace = "rrg",
     types = { "tool" },
     additional_types = { "test" },
     dependencies = {
