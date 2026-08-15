@@ -14,8 +14,10 @@ local project = {
 
 function project.init(proj, ctx)
     proj.debug_args = {
-        "--root=\"" .. os.realpath(proj.location) .. "\"",
-        "--files=*.hpp"
+        "--v",
+        "--pch=\"$pch_bin$\"",
+        "--i=\"$obj_path$\"",
+        os.realpath(proj.location .. "/src/test/test.hpp")
     }
     
     return proj
