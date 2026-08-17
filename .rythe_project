@@ -7,7 +7,7 @@ local project = {
         "public rythe/rythe-standard-library",
         "private third_party/clang-c:header-only"
     },
-    defines = { "RYTHE_INTERNAL" },
+    defines = { "RYTHE_INTERNAL", "RSL_NO_LOGGING_DEBUGBREAK" },
     additional_link_targets = { "libclang" },
     pch_file_name = "./pch"
 }
@@ -16,7 +16,7 @@ function project.init(proj, ctx)
     proj.debug_args = {
         "--v",
         "--pch=\"$pch_bin$\"",
-        "--i=\"$obj_path$\"",
+        "--intermediates=\"$obj_path$\"",
         os.realpath(proj.location .. "/src/test/test.hpp")
     }
     
