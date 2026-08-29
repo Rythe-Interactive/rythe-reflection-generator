@@ -22,6 +22,7 @@ int main(int argc, char* argv[])
     cli.add_param({ "help", "h" }, true, "  --{:<21}\tDisplay help.");
     cli.add_param("version", true, "  --{:<21}\tDisplay version.");
     cli.add_param({ "verbose", "v" }, true, "  --{:<21}\tUse verbose logging.");
+    cli.add_param({ "clean", "c" }, true, "  --{:<21}\tKeep track of used intermediate files, and delete all unused ones at the end.");
     cli.add_param("files", false, "  --{}=<filename>\t\tA file containing a list of files to process, one per line.");
     cli.add_param("pch", false, "  --{}=<filename>\t\tUse a precompiled header to speed up process.");
     cli.add_param(
@@ -125,8 +126,12 @@ int main(int argc, char* argv[])
                 rsl::result<rsl::byte_view> data = rfs::view(file).read();
                 if (!data.has_errors())
                 {
+                    rsl::hash_state hashState;
+                    rsl::begin_content_hash(hashState);
+                    rsl::append_content_hash(hashState, rfs::standardize(file).view());
+                    rsl::append_content_hash(hashState, data.value());
 
-                    const rsl::content_hash content = rsl::hash_content(data.value());
+                    const rsl::content_hash content = rsl::end_content_hash(hashState);
                     intermediateFile = intermediatesPath /
                             rsl::format("{}/{}/{}/{}/{}.rrg_ast",
                                         content.value.u32[0],
@@ -231,9 +236,7 @@ static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::
     const rfs::local_disk_file_solution* nativeSolution = dynamic_cast<const rfs::local_disk_file_solution*>(solution.ptr);
     if (!nativeSolution)
     {
-        rsl::log::error(
-                "Failed to save intermediate file \"{}\" because it was not a native file.",
-                file.path());
+        rsl::log::error("Failed to save intermediate file \"{}\" because it was not a native file.", file.path());
         return;
     }
 
