@@ -113,6 +113,15 @@ int main(int argc, char* argv[])
     rlog::info("Processing files:");
     {
         rlog::indent_scope indentScope{};
+
+        rsl::pointer<rsl::dynamic_set<rsl::dynamic_string>> usedIntermediateFiles{ nullptr };
+
+        if (hasIntermediatesPath && cli.has_flag({ "clean", "c" }))
+        {
+            static rsl::dynamic_set<rsl::dynamic_string> usedIntermediateFilesSet;
+            usedIntermediateFiles = { &usedIntermediateFilesSet };
+        }
+
         for (auto& file : files)
         {
             rlog::trace("{}", file);
@@ -123,12 +132,13 @@ int main(int argc, char* argv[])
             if (hasIntermediatesPath)
             {
                 rlog::trace("Computing content hash.");
-                rsl::result<rsl::byte_view> data = rfs::view(file).read();
+                rfs::view fileView{ file };
+                rsl::result<rsl::byte_view> data = fileView.read();
                 if (!data.has_errors())
                 {
                     rsl::hash_state hashState;
                     rsl::begin_content_hash(hashState);
-                    rsl::append_content_hash(hashState, rfs::standardize(file).view());
+                    rsl::append_content_hash(hashState, fileView.path());
                     rsl::append_content_hash(hashState, data.value());
 
                     const rsl::content_hash content = rsl::end_content_hash(hashState);
@@ -139,6 +149,11 @@ int main(int argc, char* argv[])
                                         content.value.u32[2],
                                         content.value.u32[3],
                                         content.size);
+
+                    if (usedIntermediateFiles)
+                    {
+                        usedIntermediateFiles->insert(intermediateFile.path());
+                    }
 
                     rlog::trace("Loading intermediate file \"{}\".", intermediateFile.path());
                     translationUnit = load_translation_unit(index, intermediateFile);
@@ -175,6 +190,31 @@ int main(int argc, char* argv[])
 
             clang_disposeTranslationUnit(translationUnit);
         }
+
+        if (usedIntermediateFiles)
+        {
+            intermediatesPath.iterate_recursive([&](rfs::view& file)
+            {
+                if (!file.is_file())
+                {
+                    if (file.is_directory() && file.is_empty())
+                    {
+                        rlog::trace("Deleting folder: \"{}\"", file.path());
+                        rsl::scoped_assert_on_error noAssert(false);
+                        file.delete_entry().report_errors_and_resolve();
+                    }
+                    return;
+                }
+
+                if (usedIntermediateFiles->contains(file.path()))
+                {
+                    return;
+                }
+                rlog::trace("Deleting file: \"{}\"", file.path());
+                rsl::scoped_assert_on_error noAssert(false);
+                file.delete_entry(rsl::file_delete_flags::recursive).report_errors_and_resolve();
+            });
+        }
     }
 
     return 0;
@@ -190,8 +230,8 @@ static CXTranslationUnit load_translation_unit(CXIndex index, const rfs::view& f
     }
 
     rsl::pointer<const rfs::file_solution> solution = file.get_solution();
-    const rfs::local_disk_file_solution* nativeSolution = dynamic_cast<const rfs::local_disk_file_solution*>(solution.ptr);
-    if (!nativeSolution)
+    rsl::pointer<const rfs::local_disk_archive> nativeArchive;
+    if (!solution || !(nativeArchive = { dynamic_cast<const rfs::local_disk_archive*>(solution->get_provider().ptr) }))
     {
         rsl::log::error(
                 "Failed to load intermediate file \"{}\" because it was not a native file, will attempt to parse from source.",
@@ -200,7 +240,7 @@ static CXTranslationUnit load_translation_unit(CXIndex index, const rfs::view& f
     }
 
     CXTranslationUnit translationUnit;
-    CXErrorCode error = clang_createTranslationUnit2(index, nativeSolution->get_absolute_path().data(), &translationUnit);
+    CXErrorCode error = clang_createTranslationUnit2(index, nativeArchive->get_absolute_path(*solution).data(), &translationUnit);
     if (error != CXError_Success)
     {
         rsl::log::error("Failed to load intermediate file \"{}\", will attempt to parse from source.", file.path());
@@ -233,15 +273,15 @@ static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::
     }
 
     rsl::pointer<const rfs::file_solution> solution = file.get_solution();
-    const rfs::local_disk_file_solution* nativeSolution = dynamic_cast<const rfs::local_disk_file_solution*>(solution.ptr);
-    if (!nativeSolution)
+    rsl::pointer<const rfs::local_disk_archive> nativeArchive;
+    if (!solution || !(nativeArchive = { dynamic_cast<const rfs::local_disk_archive*>(solution->get_provider().ptr) }))
     {
         rsl::log::error("Failed to save intermediate file \"{}\" because it was not a native file.", file.path());
         return;
     }
 
     const int error =
-            clang_saveTranslationUnit(translationUnit, nativeSolution->get_absolute_path().data(), CXSaveTranslationUnit_None);
+            clang_saveTranslationUnit(translationUnit, nativeArchive->get_absolute_path(*solution).data(), CXSaveTranslationUnit_None);
     if (error != CXSaveError_None)
     {
         rsl::log::error("Failed to save intermediate file \"{}\".", file.path());
