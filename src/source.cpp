@@ -4,8 +4,11 @@
 #include <rsl/set>
 #include <rsl/string>
 #include <rsl/threading>
+#include <rsl/utilities>
 
 #include <clang-c/Index.h>
+
+#include "reflection_parser.hpp"
 
 static CXTranslationUnit load_translation_unit(CXIndex index, const rfs::view& file);
 static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::view& file);
@@ -122,6 +125,34 @@ int main(int argc, char* argv[])
             usedIntermediateFiles = { &usedIntermediateFilesSet };
         }
 
+        rythe_defer_execution
+        {
+            if (usedIntermediateFiles)
+            {
+                intermediatesPath.iterate_recursive([&](rfs::view& file)
+                {
+                    if (!file.is_file())
+                    {
+                        if (file.is_directory() && file.is_empty())
+                        {
+                            rlog::trace("Deleting folder: \"{}\"", file.path());
+                            rsl::scoped_assert_on_error noAssert(false);
+                            file.delete_entry().report_errors_and_resolve();
+                        }
+                        return;
+                    }
+
+                    if (usedIntermediateFiles->contains(file.path()))
+                    {
+                        return;
+                    }
+                    rlog::trace("Deleting file: \"{}\"", file.path());
+                    rsl::scoped_assert_on_error noAssert(false);
+                    file.delete_entry(rsl::file_delete_flags::recursive).report_errors_and_resolve();
+                });
+            }
+        };
+
         for (auto& file : files)
         {
             rlog::trace("{}", file);
@@ -181,39 +212,24 @@ int main(int argc, char* argv[])
                 }
             }
 
+            if (!translationUnit)
+            {
+                rsl::log::error("Failed to parse source file \"{}\", unkown error...", file);
+                return -1;
+            }
+
             if (hasIntermediatesPath && intermediateFile.is_valid())
             {
                 save_translation_unit(translationUnit, intermediateFile);
             }
 
-            // do something
+            rrg::reflection_parser parser{};
+            if (auto result = parser.parse_translation_unit(translationUnit); result.has_errors())
+            {
+                return rsl::narrowing_cast<int>(result.report_errors_and_resolve());
+            }
 
             clang_disposeTranslationUnit(translationUnit);
-        }
-
-        if (usedIntermediateFiles)
-        {
-            intermediatesPath.iterate_recursive([&](rfs::view& file)
-            {
-                if (!file.is_file())
-                {
-                    if (file.is_directory() && file.is_empty())
-                    {
-                        rlog::trace("Deleting folder: \"{}\"", file.path());
-                        rsl::scoped_assert_on_error noAssert(false);
-                        file.delete_entry().report_errors_and_resolve();
-                    }
-                    return;
-                }
-
-                if (usedIntermediateFiles->contains(file.path()))
-                {
-                    return;
-                }
-                rlog::trace("Deleting file: \"{}\"", file.path());
-                rsl::scoped_assert_on_error noAssert(false);
-                file.delete_entry(rsl::file_delete_flags::recursive).report_errors_and_resolve();
-            });
         }
     }
 
