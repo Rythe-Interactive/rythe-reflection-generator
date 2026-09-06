@@ -159,6 +159,7 @@ int main(int argc, char* argv[])
             rlog::indent_scope fileIndentScope{};
 
             rfs::view intermediateFile;
+            bool saveTranslationUnit = false;
             CXTranslationUnit translationUnit = nullptr;
             if (hasIntermediatesPath)
             {
@@ -188,6 +189,8 @@ int main(int argc, char* argv[])
 
                     rlog::trace("Loading intermediate file \"{}\".", intermediateFile.path());
                     translationUnit = load_translation_unit(index, intermediateFile);
+
+                    saveTranslationUnit = !translationUnit;
                 }
                 else
                 {
@@ -218,7 +221,7 @@ int main(int argc, char* argv[])
                 return -1;
             }
 
-            if (hasIntermediatesPath && intermediateFile.is_valid())
+            if (saveTranslationUnit)
             {
                 save_translation_unit(translationUnit, intermediateFile);
             }
