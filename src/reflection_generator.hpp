@@ -6,5 +6,5 @@
 
 namespace rrg
 {
-    rsl::result<void> process_translation_unit(CXTranslationUnit translationUnit, rfs::view& outputFile);
+    rsl::result<void> process_translation_unit(CXTranslationUnit translationUnit, const rfs::view& sourceFile, rfs::view& outputFile);
 }

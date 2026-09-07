@@ -253,8 +253,6 @@ int main(int argc, char* argv[])
                     rsl::log::error("Failed to load intermediate file for \"{}\", will attempt to parse from source.", file);
                     data.resolve();
                 }
-
-                fileView.release_solution();
             }
 
             if (!translationUnit)
@@ -294,7 +292,7 @@ int main(int argc, char* argv[])
                 outputFile = rfs::view(outputPath) / outputFileName;
             }
 
-            if (auto result = rrg::process_translation_unit(translationUnit, outputFile); result.has_errors())
+            if (auto result = rrg::process_translation_unit(translationUnit, fileView, outputFile); result.has_errors())
             {
                 rsl::scoped_assert_on_error noAssert(false);
                 return rsl::narrowing_cast<int>(result.report_errors_and_resolve());

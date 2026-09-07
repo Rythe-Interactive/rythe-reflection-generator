@@ -36,9 +36,27 @@ namespace rrg
 
             return CXChildVisit_Recurse;
         }
+
+        rsl::result<void> write_reflection_file_header(
+                rsl::pointer<generator_context> context, const rfs::view& sourceFile, rfs::view& outputFile)
+        {
+            rsl::pointer<const rfs::file_solution> solution = sourceFile.get_solution();
+            rsl::pointer<const rfs::local_disk_archive> nativeArchive;
+            if (!solution || !(nativeArchive = { dynamic_cast<const rfs::local_disk_archive*>(solution->get_provider().ptr) }))
+            {
+                return rsl::make_error(rsl::filesystem_error::invalid_solution, "Source file is not a native file.");
+            }
+
+            return context->outputFile.append(
+                    rsl::format(
+                            "#pragma once\n#include\"{}\"\nnamespace rythe::reflection{{void report_reflection_data_{}(){{",
+                            nativeArchive->get_absolute_path(*solution),
+                            rfs::strip_extension(outputFile.filename()))
+                            .view());
+        }
     } // namespace
 
-    rsl::result<void> process_translation_unit(CXTranslationUnit translationUnit, rfs::view& outputFile)
+    rsl::result<void> process_translation_unit(CXTranslationUnit translationUnit, const rfs::view& sourceFile, rfs::view& outputFile)
     {
         CXCursor cursor = clang_getTranslationUnitCursor(translationUnit);
         generator_context context{
@@ -63,6 +81,11 @@ namespace rrg
             return result.propagate();
         }
 
+        if (rsl::result<void> result = write_reflection_file_header({ &context }, sourceFile, outputFile); result.has_errors())
+        {
+            return result.propagate();
+        }
+
         clang_visitChildren(cursor, [](CXCursor cursor, CXCursor parent, CXClientData self) {
             return visit_cursor(cursor, parent, { static_cast<generator_context*>(self) });
         }, &context);
@@ -70,6 +93,11 @@ namespace rrg
         if (context.result.has_errors())
         {
             return context.result.propagate();
+        }
+
+        if (rsl::result<void> result = context.outputFile.append(rsl::string_view::from_array("}}")); result.has_errors())
+        {
+            return result.propagate();
         }
 
         return rsl::okay;
