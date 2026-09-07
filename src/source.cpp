@@ -4,14 +4,22 @@
 #include <rsl/set>
 #include <rsl/string>
 #include <rsl/threading>
+#include <rsl/time>
 #include <rsl/utilities>
 
 #include <clang-c/Index.h>
 
-#include "reflection_parser.hpp"
+#include "reflection_generator.hpp"
 
 static CXTranslationUnit load_translation_unit(CXIndex index, const rfs::view& file);
 static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::view& file);
+
+enum struct output_mode
+{
+    invalid,
+    individual,
+    grouped,
+};
 
 int main(int argc, char* argv[])
 {
@@ -26,13 +34,19 @@ int main(int argc, char* argv[])
     cli.add_param("version", true, "  --{:<21}\tDisplay version.");
     cli.add_param({ "verbose", "v" }, true, "  --{:<21}\tUse verbose logging.");
     cli.add_param({ "clean", "c" }, true, "  --{:<21}\tKeep track of used intermediate files, and delete all unused ones at the end.");
-    cli.add_param("files", false, "  --{}=<filename>\t\tA file containing a list of files to process, one per line.");
     cli.add_param("pch", false, "  --{}=<filename>\t\tUse a precompiled header to speed up process.");
+
     cli.add_param(
             "intermediates",
             false,
             "  --{}=<path>\tUse an intermediates folder to allow partial recompilation of changed files only.");
     cli.add_param("i", false, "  --{}=<path>\t\t\tUse an intermediates folder to allow partial recompilation of changed files only.");
+
+    cli.add_param("output-mode", false, "  --{}=<mode>\tSet the way --output should be interpreted. i=individual for each generated output relative to the source file, g=grouped output folder for all generated outputs. Default value: \"i\"");
+    cli.add_param("om", false, "  --{}=<mode>\t\t\tSet the way --output should be interpreted. i=individual for each generated output relative to the source file, g=grouped output folder for all generated outputs. Default value: \"i\"");
+
+    cli.add_param("output", false, "  --{}=<path>\t\tTarget output folder of all generated files. Default value: \"generated/\"");
+    cli.add_param("o", false, "  --{}=<path>\t\t\tTarget output folder of all generated files. Default value: \"generated/\"");
 
     cli.parse(argc, argv);
 
@@ -57,6 +71,28 @@ int main(int argc, char* argv[])
         rlog::filter(rlog::severity::trace);
     }
 
+    output_mode outputMode = output_mode::invalid;
+    rsl::string_view outputModeParam = cli.get_param({ "output-mode", "om" }, "i");
+    if (outputModeParam.size() == 1ull)
+    {
+        if (outputModeParam[0] == 'i')
+        {
+            outputMode = output_mode::individual;
+        }
+        else if (outputModeParam[0] == 'g')
+        {
+            outputMode = output_mode::grouped;
+        }
+    }
+
+    if (outputMode == output_mode::invalid)
+    {
+        rlog::error("Output mode \"{}\" is invalid", outputModeParam);
+        return -1;
+    }
+
+    const rsl::dynamic_string outputPath = rfs::standardize(cli.get_param({ "output", "o" }, "generated/"));
+
     // lazy deduplicate
     const rsl::dynamic_array<rsl::string_view> files =
             rsl::dynamic_array<rsl::string_view>::from_view(rsl::dynamic_set<rsl::string_view>::from_view(cli.pos_args()).view());
@@ -65,7 +101,7 @@ int main(int argc, char* argv[])
     const rsl::dynamic_array<rsl::string_view> pchFiles = rsl::dynamic_array<rsl::string_view>::from_view(
             rsl::dynamic_set<rsl::string_view>::from_view(cli.get_params("pch")).view());
 
-    const rfs::view intermediatesPath = rfs::view(cli.get_param({ "intermediates", "i" })) / "rrg/";
+    const rfs::view intermediatesPath = rfs::view(cli.get_param({ "intermediates", "i" }), true) / "rrg/";
     bool hasIntermediatesPath = intermediatesPath.is_valid(true);
 
     if (!intermediatesPath.exists())
@@ -153,18 +189,34 @@ int main(int argc, char* argv[])
             }
         };
 
-        for (auto& file : files)
+        rsl::timer totalTimer {};
+        totalTimer.start();
+        rythe_defer_execution
+        {
+            rsl::time_span elapsedTime = totalTimer.end();
+            rlog::info("File processing took {}, {} per file.", elapsedTime, elapsedTime / files.size());
+        };
+
+        for (rsl::string_view file : files)
         {
             rlog::trace("{}", file);
             rlog::indent_scope fileIndentScope{};
 
+            rsl::timer fileTimer{};
+            fileTimer.start();
+            rythe_defer_execution
+            {
+                rsl::time_span elapsedTime = fileTimer.end();
+                rlog::info("Generation took {}.", elapsedTime);
+            };
+
+            rfs::view fileView(file, true);
             rfs::view intermediateFile;
             bool saveTranslationUnit = false;
             CXTranslationUnit translationUnit = nullptr;
             if (hasIntermediatesPath)
             {
                 rlog::trace("Computing content hash.");
-                rfs::view fileView{ file };
                 rsl::result<rsl::byte_view> data = fileView.read();
                 if (!data.has_errors())
                 {
@@ -201,6 +253,8 @@ int main(int argc, char* argv[])
                     rsl::log::error("Failed to load intermediate file for \"{}\", will attempt to parse from source.", file);
                     data.resolve();
                 }
+
+                fileView.release_solution();
             }
 
             if (!translationUnit)
@@ -226,9 +280,23 @@ int main(int argc, char* argv[])
                 save_translation_unit(translationUnit, intermediateFile);
             }
 
-            rrg::reflection_parser parser{};
-            if (auto result = parser.parse_translation_unit(translationUnit); result.has_errors())
+            rsl::dynamic_string outputFileName = rsl::dynamic_string::from_view(fileView.filename());
+            rsl::linear_search_and_replace(outputFileName, '.', '_');
+            outputFileName.append(".hpp");
+
+            rfs::view outputFile;
+            if (outputMode == output_mode::individual)
             {
+                outputFile = fileView.parent() / outputPath / outputFileName;
+            }
+            else
+            {
+                outputFile = rfs::view(outputPath) / outputFileName;
+            }
+
+            if (auto result = rrg::process_translation_unit(translationUnit, outputFile); result.has_errors())
+            {
+                rsl::scoped_assert_on_error noAssert(false);
                 return rsl::narrowing_cast<int>(result.report_errors_and_resolve());
             }
 

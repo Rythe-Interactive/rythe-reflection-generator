@@ -6,3 +6,4 @@ src/rsl/obj
 *.user
 *.sln
 .idea
+**/generated/**
