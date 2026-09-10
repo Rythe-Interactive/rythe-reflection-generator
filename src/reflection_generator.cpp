@@ -49,7 +49,7 @@ namespace rrg
 
             return context->outputFile.append(
                     rsl::format(
-                            "#pragma once\n#include\"{}\"\nnamespace rythe::reflection{{void report_reflection_data_{}(){{",
+                            "#pragma once\n#include<rsl/reflection>\n#include\"{}\"\nnamespace rythe::reflection{{void report_reflection_data_{}(rrfl::reflection_registry& registry){{",
                             nativeArchive->get_absolute_path(*solution),
                             rfs::strip_extension(outputFile.filename()))
                             .view());

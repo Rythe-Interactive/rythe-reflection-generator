@@ -18,6 +18,7 @@ function project.init(proj, ctx)
         "--c",
         "--pch=\"$pch_bin$\"",
         "--intermediates=\"$obj_path$\"",
+        "--arg=\"-isystem..\\..\\..\\libraries\\rythe\\rythe-standard-library\\src\"",
         os.realpath(proj.location .. "/src/test/test.hpp")
     }
     

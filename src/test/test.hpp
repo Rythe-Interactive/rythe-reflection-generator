@@ -1,14 +1,17 @@
 #pragma once
 
+#if defined(RSL_REFLECTION_PARSE)
+#include <rsl/reflection>
+
 namespace test
 {
-    struct test_struct
+    struct [[rsl_reflect()]] test_struct
     {
         int value;
         int get_value() { return value; }
     };
 
-    class test_class
+    class [[rsl_reflect()]] test_class
     {
         test_class() = default;
         test_class(const test_struct& value)
@@ -21,3 +24,4 @@ namespace test
         test_struct m_value;
     };
 } // namespace test
+#endif

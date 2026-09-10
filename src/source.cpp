@@ -48,6 +48,8 @@ int main(int argc, char* argv[])
     cli.add_param("output", false, "  --{}=<path>\t\tTarget output folder of all generated files. Default value: \"generated/\"");
     cli.add_param("o", false, "  --{}=<path>\t\t\tTarget output folder of all generated files. Default value: \"generated/\"");
 
+    cli.add_param("arg", false, "  --{}=\"<argument>\"\tAdditional argument to pass onto clang.");
+
     cli.parse(argc, argv);
 
     if (cli.has_flag({ "help", "h" }) || cli.is_empty())
@@ -118,6 +120,30 @@ int main(int argc, char* argv[])
 
             creationResult.resolve();
             hasIntermediatesPath = false;
+        }
+    }
+
+    rsl::dynamic_array<rsl::dynamic_string> parseArgumentsStorage;
+    rsl::dynamic_array<rsl::cstring> parseArguments;
+    {
+        rsl::array_view<const rsl::string_view> inputArguments = cli.get_params("arg");
+        parseArgumentsStorage.reserve(inputArguments.size());
+        parseArguments.reserve(inputArguments.size() + 1);
+        parseArguments.push_back("-DRSL_REFLECTION_PARSE");
+        for (rsl::string_view arg : inputArguments)
+        {
+            rsl::dynamic_string& argument = parseArgumentsStorage.emplace_back(rsl::trim(arg, '\"'));
+            parseArguments.push_back(argument.data());
+        }
+    }
+
+    rsl::hash_state contentHashState{};
+    rsl::begin_content_hash(contentHashState);
+    if (hasIntermediatesPath)
+    {
+        for (rsl::string_view argument : parseArgumentsStorage)
+        {
+            rsl::append_content_hash(contentHashState, argument);
         }
     }
 
@@ -220,8 +246,7 @@ int main(int argc, char* argv[])
                 rsl::result<rsl::byte_view> data = fileView.read();
                 if (!data.has_errors())
                 {
-                    rsl::hash_state hashState;
-                    rsl::begin_content_hash(hashState);
+                    rsl::hash_state hashState = contentHashState;
                     rsl::append_content_hash(hashState, fileView.path());
                     rsl::append_content_hash(hashState, data.value());
 
@@ -259,7 +284,7 @@ int main(int argc, char* argv[])
             {
                 rlog::trace("Parsing translation unit.");
                 const CXErrorCode error = clang_parseTranslationUnit2(
-                        index, file.data(), nullptr, 0, nullptr, 0, translationUnitFlags, &translationUnit);
+                        index, file.data(), parseArguments.data(), rsl::narrowing_cast<int>(parseArguments.size()), nullptr, 0, translationUnitFlags, &translationUnit);
                 if (error != CXError_Success)
                 {
                     rsl::log::error("Failed to parse source file \"{}\".", file);
