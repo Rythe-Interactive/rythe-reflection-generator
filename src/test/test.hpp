@@ -13,15 +13,18 @@ namespace test
 
     class [[rsl_reflect()]] test_class
     {
+    public:
         test_class() = default;
         test_class(const test_struct& value)
             : m_value(value)
         {}
 
-        test_struct get_value() { return m_value; }
+        const test_struct& get_value(int) const noexcept { return m_value; }
 
     private:
         test_struct m_value;
     };
+
+    const float globalVal = 0.567f;
 } // namespace test
 #endif

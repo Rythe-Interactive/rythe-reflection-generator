@@ -6,10 +6,14 @@
 #include <rsl/threading>
 #include <rsl/time>
 #include <rsl/utilities>
+#include <semver.hpp>
 
 #include <clang-c/Index.h>
 
 #include "reflection_generator.hpp"
+
+constexpr semver::version rrg_version(0, 0, 0, semver::prerelease::alpha, 0);
+constexpr bool debug_no_intermediates = true;
 
 static CXTranslationUnit load_translation_unit(CXIndex index, const rfs::view& file);
 static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::view& file);
@@ -23,6 +27,8 @@ enum struct output_mode
 
 int main(int argc, char* argv[])
 {
+    using namespace rsl::literals;
+
     rsl::current_thread::set_name("Main thread");
 
     rsl::get_logging_context().logger = rsl::get_logging_context().undecoratedLogger;
@@ -60,7 +66,7 @@ int main(int argc, char* argv[])
 
     if (cli.has_flag("version"))
     {
-        rlog::undecorated_info("rythe-reflection-generator v{}", 0);
+        rlog::undecorated_info("rythe-reflection-generator v{}", rrg_version.to_string());
         return 0;
     }
 
@@ -93,7 +99,7 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    const rsl::dynamic_string outputPath = rfs::standardize(cli.get_param({ "output", "o" }, "generated/"));
+    const rsl::dynamic_string outputPath = rfs::standardize(cli.get_param({ "output", "o" }, "generated/"_sv));
 
     // lazy deduplicate
     const rsl::dynamic_array<rsl::string_view> files =
@@ -103,7 +109,7 @@ int main(int argc, char* argv[])
     const rsl::dynamic_array<rsl::string_view> pchFiles = rsl::dynamic_array<rsl::string_view>::from_view(
             rsl::dynamic_set<rsl::string_view>::from_view(cli.get_params("pch")).view());
 
-    const rfs::view intermediatesPath = rfs::view(cli.get_param({ "intermediates", "i" }), true) / "rrg/";
+    const rfs::view intermediatesPath = debug_no_intermediates ? ""_fsv : rfs::view(cli.get_param({ "intermediates", "i" }), true) / "rrg/"_sv;
     bool hasIntermediatesPath = intermediatesPath.is_valid(true);
 
     if (!intermediatesPath.exists())
@@ -112,7 +118,7 @@ int main(int argc, char* argv[])
         rsl::result<void> creationResult = intermediatesPath.create();
         if (creationResult.has_errors())
         {
-            rlog::indent_scope indentScope{};
+            RYTHE_LOG_INDENT_SCOPE;
             for (const rsl::error_type& error : creationResult.get_errors())
             {
                 rlog::trace("{}: {}", error.code, error.message);
@@ -130,6 +136,7 @@ int main(int argc, char* argv[])
         parseArgumentsStorage.reserve(inputArguments.size());
         parseArguments.reserve(inputArguments.size() + 1);
         parseArguments.push_back("-DRSL_REFLECTION_PARSE");
+        parseArguments.push_back("-DRYTHE_VALIDATION_LEVEL=0");
         for (rsl::string_view arg : inputArguments)
         {
             rsl::dynamic_string& argument = parseArgumentsStorage.emplace_back(rsl::trim(arg, '\"'));
@@ -141,6 +148,8 @@ int main(int argc, char* argv[])
     rsl::begin_content_hash(contentHashState);
     if (hasIntermediatesPath)
     {
+        const auto version = rrg_version.to_string();
+        rsl::append_content_hash(contentHashState, rsl::string_view::from_buffer(version.c_str(), version.size()));
         for (rsl::string_view argument : parseArgumentsStorage)
         {
             rsl::append_content_hash(contentHashState, argument);
@@ -149,18 +158,12 @@ int main(int argc, char* argv[])
 
     CXIndex index = clang_createIndex(!pchFiles.is_empty(), verbose);
 
-    int translationUnitFlags = CXTranslationUnit_Incomplete | CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing |
-            CXTranslationUnit_SingleFileParse | CXTranslationUnit_IncludeAttributedTypes |
+    const int translationUnitFlags = CXTranslationUnit_Incomplete | CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing |
             CXTranslationUnit_IgnoreNonErrorsFromIncludedFiles;
-
-    if (pchFiles.is_empty())
-    {
-        translationUnitFlags |= CXTranslationUnit_PrecompiledPreamble | CXTranslationUnit_CreatePreambleOnFirstParse;
-    }
 
     rlog::info("Loading pch:");
     {
-        rlog::indent_scope indentScope{};
+        RYTHE_LOG_INDENT_SCOPE;
 
         for (auto& pch : pchFiles)
         {
@@ -177,7 +180,7 @@ int main(int argc, char* argv[])
 
     rlog::info("Processing files:");
     {
-        rlog::indent_scope indentScope{};
+        RYTHE_LOG_INDENT_SCOPE;
 
         rsl::pointer<rsl::dynamic_set<rsl::dynamic_string>> usedIntermediateFiles{ nullptr };
 
@@ -215,7 +218,7 @@ int main(int argc, char* argv[])
             }
         };
 
-        rsl::timer totalTimer {};
+        rsl::timer totalTimer{};
         totalTimer.start();
         rythe_defer_execution
         {
@@ -223,107 +226,163 @@ int main(int argc, char* argv[])
             rlog::info("File processing took {}, {} per file.", elapsedTime, elapsedTime / files.size());
         };
 
-        for (rsl::string_view file : files)
-        {
-            rlog::trace("{}", file);
-            rlog::indent_scope fileIndentScope{};
+        rsl::dynamic_array<rsl::pair<CXTranslationUnit, rfs::view>> translationUnits;
+        translationUnits.reserve(files.size());
 
-            rsl::timer fileTimer{};
-            fileTimer.start();
+        rlog::info("Parsing files:");
+        {
+            RYTHE_LOG_INDENT_SCOPE;
+
+            rsl::timer parsingTimer{};
+            parsingTimer.start();
             rythe_defer_execution
             {
-                rsl::time_span elapsedTime = fileTimer.end();
-                rlog::info("Generation took {}.", elapsedTime);
+                rsl::time_span elapsedTime = parsingTimer.end();
+                rlog::info("File parsing took {}, {} per file.", elapsedTime, elapsedTime / files.size());
             };
 
-            rfs::view fileView(file, true);
-            rfs::view intermediateFile;
-            bool saveTranslationUnit = false;
-            CXTranslationUnit translationUnit = nullptr;
-            if (hasIntermediatesPath)
+            for (rsl::string_view file : files)
             {
-                rlog::trace("Computing content hash.");
-                rsl::result<rsl::byte_view> data = fileView.read();
-                if (!data.has_errors())
+                auto& [translationUnit, fileView] =
+                        translationUnits.emplace_back(rsl::pair(CXTranslationUnit{}, rfs::view(file, true)));
+                rlog::trace("{}", fileView.path());
+                RYTHE_LOG_INDENT_SCOPE;
+
+                rsl::timer fileTimer{};
+                fileTimer.start();
+                rythe_defer_execution
                 {
-                    rsl::hash_state hashState = contentHashState;
-                    rsl::append_content_hash(hashState, fileView.path());
-                    rsl::append_content_hash(hashState, data.value());
+                    rsl::time_span elapsedTime = fileTimer.end();
+                    rlog::trace("Parsing took {}.", elapsedTime);
+                };
 
-                    const rsl::content_hash content = rsl::end_content_hash(hashState);
-                    intermediateFile = intermediatesPath /
-                            rsl::format("{}/{}/{}/{}/{}.rrg_ast",
-                                        content.value.u32[0],
-                                        content.value.u32[1],
-                                        content.value.u32[2],
-                                        content.value.u32[3],
-                                        content.size);
-
-                    if (usedIntermediateFiles)
+                rfs::view intermediateFile;
+                bool saveTranslationUnit = false;
+                if (hasIntermediatesPath)
+                {
+                    rlog::trace("Computing content hash.");
+                    rsl::result<rsl::byte_view> data = fileView.read();
+                    if (!data.has_errors())
                     {
-                        usedIntermediateFiles->insert(intermediateFile.path());
+                        rsl::hash_state hashState = contentHashState;
+                        rsl::append_content_hash(hashState, fileView.path());
+                        rsl::append_content_hash(hashState, data.value());
+
+                        const rsl::content_hash content = rsl::end_content_hash(hashState);
+                        intermediateFile = intermediatesPath /
+                                rsl::format("{}/{}/{}/{}/{}.rrg_ast",
+                                            content.value.u32[0],
+                                            content.value.u32[1],
+                                            content.value.u32[2],
+                                            content.value.u32[3],
+                                            content.size);
+
+                        //TODO(Glyn): track include tree and invalidate intermediate file when any file in the include tree changes
+
+                        if (usedIntermediateFiles)
+                        {
+                            usedIntermediateFiles->insert(intermediateFile.path());
+                        }
+
+                        rlog::trace("Loading intermediate file \"{}\".", intermediateFile.path());
+                        translationUnit = load_translation_unit(index, intermediateFile);
+
+                        saveTranslationUnit = !translationUnit;
                     }
+                    else
+                    {
+                        for (const rsl::error_type& error : data.get_errors())
+                        {
+                            rlog::trace("{}: {}", error.code, error.message);
+                        }
+                        rsl::log::error("Failed to load intermediate file for \"{}\", will attempt to parse from source.", file);
+                        data.resolve();
+                    }
+                }
 
-                    rlog::trace("Loading intermediate file \"{}\".", intermediateFile.path());
-                    translationUnit = load_translation_unit(index, intermediateFile);
+                if (!translationUnit)
+                {
+                    rlog::trace("Parsing translation unit.");
+                    rlog::flush();
+                    const CXErrorCode error = clang_parseTranslationUnit2(
+                            index,
+                            file.data(),
+                            parseArguments.data(),
+                            rsl::narrowing_cast<int>(parseArguments.size()),
+                            nullptr,
+                            0,
+                            translationUnitFlags,
+                            &translationUnit);
+                    if (error != CXError_Success)
+                    {
+                        rsl::log::error("Failed to parse source file \"{}\".", file);
+                        return error;
+                    }
+                }
 
-                    saveTranslationUnit = !translationUnit;
+                if (!translationUnit)
+                {
+                    rsl::log::error("Failed to parse source file \"{}\", unkown error...", file);
+                    return -1;
+                }
+
+                if (saveTranslationUnit)
+                {
+                    save_translation_unit(translationUnit, intermediateFile);
+                }
+            }
+        }
+
+
+        rlog::info("Generating files:");
+        {
+            RYTHE_LOG_INDENT_SCOPE;
+
+            rsl::timer generationTimer{};
+            generationTimer.start();
+            rythe_defer_execution
+            {
+                rsl::time_span elapsedTime = generationTimer.end();
+                rlog::info("File generation took {}, {} per file.", elapsedTime, elapsedTime / files.size());
+            };
+
+            rsl::dynamic_string fileContentBuffer;
+            fileContentBuffer.reserve(1_kb);
+            for (auto& [translationUnit, fileView] : translationUnits)
+            {
+                rlog::trace("{}", fileView.path());
+                RYTHE_LOG_INDENT_SCOPE;
+
+                rsl::timer fileTimer{};
+                fileTimer.start();
+                rythe_defer_execution
+                {
+                    rsl::time_span elapsedTime = fileTimer.end();
+                    rlog::trace("Generating took {}.", elapsedTime);
+                };
+
+                rsl::dynamic_string outputFileName = rsl::dynamic_string::from_view(fileView.filename());
+                rsl::linear_search_and_replace(outputFileName, '.', '_');
+                outputFileName.append(".hpp");
+
+                rfs::view outputFile;
+                if (outputMode == output_mode::individual)
+                {
+                    outputFile = fileView.parent() / outputPath / outputFileName;
                 }
                 else
                 {
-                    for (const rsl::error_type& error : data.get_errors())
-                    {
-                        rlog::trace("{}: {}", error.code, error.message);
-                    }
-                    rsl::log::error("Failed to load intermediate file for \"{}\", will attempt to parse from source.", file);
-                    data.resolve();
+                    outputFile = rfs::view(outputPath) / outputFileName;
                 }
-            }
 
-            if (!translationUnit)
-            {
-                rlog::trace("Parsing translation unit.");
-                const CXErrorCode error = clang_parseTranslationUnit2(
-                        index, file.data(), parseArguments.data(), rsl::narrowing_cast<int>(parseArguments.size()), nullptr, 0, translationUnitFlags, &translationUnit);
-                if (error != CXError_Success)
+                if (auto result = rrg::process_translation_unit(translationUnit, fileView, outputFile, fileContentBuffer); result.has_errors())
                 {
-                    rsl::log::error("Failed to parse source file \"{}\".", file);
-                    return error;
+                    rsl::scoped_assert_on_error noAssert(false);
+                    return rsl::narrowing_cast<int>(result.report_errors_and_resolve());
                 }
-            }
 
-            if (!translationUnit)
-            {
-                rsl::log::error("Failed to parse source file \"{}\", unkown error...", file);
-                return -1;
+                clang_disposeTranslationUnit(translationUnit);
             }
-
-            if (saveTranslationUnit)
-            {
-                save_translation_unit(translationUnit, intermediateFile);
-            }
-
-            rsl::dynamic_string outputFileName = rsl::dynamic_string::from_view(fileView.filename());
-            rsl::linear_search_and_replace(outputFileName, '.', '_');
-            outputFileName.append(".hpp");
-
-            rfs::view outputFile;
-            if (outputMode == output_mode::individual)
-            {
-                outputFile = fileView.parent() / outputPath / outputFileName;
-            }
-            else
-            {
-                outputFile = rfs::view(outputPath) / outputFileName;
-            }
-
-            if (auto result = rrg::process_translation_unit(translationUnit, fileView, outputFile); result.has_errors())
-            {
-                rsl::scoped_assert_on_error noAssert(false);
-                return rsl::narrowing_cast<int>(result.report_errors_and_resolve());
-            }
-
-            clang_disposeTranslationUnit(translationUnit);
         }
     }
 
@@ -370,7 +429,7 @@ static void save_translation_unit(CXTranslationUnit translationUnit, const rfs::
         rsl::result<void> creationResult = file.create();
         if (creationResult.has_errors())
         {
-            rlog::indent_scope indentScope{};
+            RYTHE_LOG_INDENT_SCOPE;
             for (const rsl::error_type& error : creationResult.get_errors())
             {
                 rlog::trace("{}: {}", error.code, error.message);
