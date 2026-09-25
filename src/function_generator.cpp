@@ -22,9 +22,13 @@ namespace rrg
             if (clang_isAttribute(kind))
             {
                 cx_string_view attribute(clang_getCursorSpelling(cursor));
-                if (!attribute.value().is_empty())
+                if (!attribute.value().is_empty() && attribute.value() != "rsl_reflect_attr"_sv)
                 {
-                    rsl::format_to(context->contentBuffer, "attribute: \"{}\"\n", attribute.value());
+                    rsl::format_to(
+                            context->contentBuffer,
+                            ".add_attribute({}{})",
+                            attribute.value(),
+                            attribute.value().back() == ')' ? ""_sv : "()"_sv);
                 }
                 return CXChildVisit_Continue;
             }
@@ -38,14 +42,14 @@ namespace rrg
         function_context context{ .contentBuffer = contentBuffer, .result = {} };
 
         CXString cursorSpelling = clang_getCursorSpelling(cursor);
-        rsl::format_to(contentBuffer, "function: \"{}\"\n", clang_getCString(cursorSpelling));
+        rsl::format_to(contentBuffer, ".add_function(\"{}\"_sv)", clang_getCString(cursorSpelling));
         clang_disposeString(cursorSpelling);
 
         CXType returnType = clang_getCursorResultType(cursor);
 
         rsl::format_to(
                 contentBuffer,
-                "access specifier: {}\nreturn type: \"{}\"\n",
+                ".set_access_spec(access_spec_type::{}_access).set_return_type(registry.get_type(\"{}\"_sv))",
                 get_access_specifier_spelling(clang_getCXXAccessSpecifier(cursor)),
                 cx_string_view(clang_getTypeSpelling(returnType)).value());
 

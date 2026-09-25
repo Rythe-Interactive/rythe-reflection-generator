@@ -61,7 +61,7 @@ namespace rrg
             {
                 if (!scope.isGenerated)
                 {
-                    rsl::format_to(contentBuffer, "namespace: \"{}\"\n", scope.spelling.value());
+                    rsl::format_to(contentBuffer, ".add_namespace(\"{}\"_sv)", scope.spelling.value());
                     scope.isGenerated = true;
                 }
             }
@@ -155,7 +155,7 @@ namespace rrg
             rsl::format_to(
                     contentBuffer,
                     "#pragma once\n#include<rsl/reflection>\n#include\"{}\"\nnamespace rythe::reflection{{void "
-                    "report_reflection_data_{}(rrfl::reflection_registry& registry){{",
+                    "report_reflection_data_{}(rrfl::reflection_registry& registry){{using namespace rsl::literals;registry",
                     nativeArchive->get_absolute_path(*solution),
                     rfs::strip_extension(outputFile.filename()));
 
@@ -205,7 +205,7 @@ namespace rrg
             return context.result.propagate();
         }
 
-        contentBuffer += "}}"_sv;
+        contentBuffer += ";}}"_sv;
 
         if (rsl::result<void> result = outputFile.write(contentBuffer.view()); result.has_errors())
         {
