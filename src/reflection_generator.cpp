@@ -155,7 +155,7 @@ namespace rrg
             rsl::format_to(
                     contentBuffer,
                     "#pragma once\n#include<rsl/reflection>\n#include\"{}\"\nnamespace rythe::reflection{{void "
-                    "report_reflection_data_{}(rrfl::reflection_registry& registry){{using namespace rsl::literals;registry",
+                    "report_reflection_data_{}(rrfl::reflection_registry&registry){{using namespace rsl::literals;registry",
                     nativeArchive->get_absolute_path(*solution),
                     rfs::strip_extension(outputFile.filename()));
 

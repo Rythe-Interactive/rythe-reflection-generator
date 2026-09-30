@@ -26,6 +26,24 @@ namespace rrg
               m_value(rsl::string_view::from_string_length(clang_getCString(cxString)))
         {}
 
+        cx_string_view& operator=(cx_string_view&& other) noexcept
+        {
+            if (m_isSet)
+            {
+                clang_disposeString(m_cxString);
+            }
+
+            m_isSet = other.m_isSet;
+            m_cxString = other.m_cxString;
+            m_value = other.m_value;
+
+            other.m_isSet = false;
+            other.m_cxString = {};
+            other.m_value = {};
+
+            return *this;
+        }
+
         ~cx_string_view()
         {
             if (m_isSet)

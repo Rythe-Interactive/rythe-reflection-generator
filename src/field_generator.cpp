@@ -1,5 +1,7 @@
 #include "field_generator.hpp"
 
+#include <rsl/logging>
+
 #include "cx_string_view.hpp"
 #include "utilities.hpp"
 
@@ -17,42 +19,34 @@ namespace rrg
 
         CXChildVisitResult visit_attributes(CXCursor cursor, rsl::pointer<field_context> context)
         {
-            CXCursorKind kind = clang_getCursorKind(cursor);
-
-            if (clang_isAttribute(kind))
+            if (clang_isAttribute(clang_getCursorKind(cursor)))
             {
-                cx_string_view attribute(clang_getCursorSpelling(cursor));
+                const cx_string_view attribute(clang_getCursorSpelling(cursor));
                 if (!attribute.value().is_empty() && attribute.value() != "rsl_reflect_attr"_sv)
                 {
-                    rsl::format_to(
-                            context->contentBuffer,
-                            ".add_attribute({}{})",
-                            attribute.value(),
-                            attribute.value().back() == ')' ? ""_sv : "()"_sv);
+                    context->contentBuffer.append(".add_attribute("_sv);
+                    context->contentBuffer.append(attribute.value());
+                    if (attribute.value().back() != ')')
+                    {
+                        context->contentBuffer.append("()"_sv);
+                    }
+                    context->contentBuffer.append(')');
                 }
-                return CXChildVisit_Continue;
             }
 
-            return CXChildVisit_Break;
+            return CXChildVisit_Continue;
         }
     } // namespace
 
     rsl::result<void> generate_field(rsl::dynamic_string& contentBuffer, CXCursor cursor)
     {
+        contentBuffer.append(".add_field(\""_sv);
+        contentBuffer.append(cx_string_view(clang_getCursorSpelling(cursor)).value());
+        contentBuffer.append("\"_sv,rrfl::field_builder<");
+        append_reconstructed_type_name(contentBuffer, clang_getCursorType(cursor));
+
+        contentBuffer.append(">{}"_sv);
         field_context context{ .contentBuffer = contentBuffer, .result = {} };
-
-        CXString cursorSpelling = clang_getCursorSpelling(cursor);
-        rsl::format_to(contentBuffer, ".add_field(\"{}\"_sv)", clang_getCString(cursorSpelling));
-        clang_disposeString(cursorSpelling);
-
-        CXType cursorType = clang_getCursorType(cursor);
-
-        rsl::format_to(
-                contentBuffer,
-                ".set_access_spec(access_spec_type::{}_access).set_type(registry.get_type(\"{}\"_sv))",
-                get_access_specifier_spelling(clang_getCXXAccessSpecifier(cursor)),
-                cx_string_view(clang_getTypeSpelling(cursorType)).value());
-
         clang_visitChildren(cursor, [](CXCursor cursor, CXCursor, CXClientData ctx) {
             return visit_attributes(cursor, { static_cast<field_context*>(ctx) });
         }, &context);
@@ -61,6 +55,10 @@ namespace rrg
         {
             return context.result.propagate();
         }
+
+        contentBuffer.append(",rrfl::access_spec_type::"_sv);
+        contentBuffer.append(get_access_specifier_spelling(clang_getCXXAccessSpecifier(cursor)));
+        contentBuffer.append("_access)"_sv);
 
         return rsl::okay;
     }

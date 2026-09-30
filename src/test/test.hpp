@@ -1,11 +1,9 @@
 #pragma once
-
-#if defined(RSL_REFLECTION_PARSE)
 #include <rsl/reflection>
 
 namespace test
 {
-    struct [[rsl_reflect()]] test_struct
+    struct [[rsl_reflect(rsl::dont_serialize)]] test_struct
     {
         int value;
         int get_value() { return value; }
@@ -19,7 +17,7 @@ namespace test
             : m_value(value)
         {}
 
-        const test_struct& get_value(int) const noexcept { return m_value; }
+        const test_struct& get_value(const int*, float) const noexcept { return m_value; }
 
     private:
         test_struct m_value;
@@ -27,4 +25,3 @@ namespace test
 
     const float globalVal = 0.567f;
 } // namespace test
-#endif

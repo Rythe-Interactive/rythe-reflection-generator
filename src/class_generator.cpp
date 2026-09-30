@@ -3,6 +3,7 @@
 #include "cx_string_view.hpp"
 #include "field_generator.hpp"
 #include "function_generator.hpp"
+#include "utilities.hpp"
 
 namespace rrg
 {
@@ -25,11 +26,13 @@ namespace rrg
                 cx_string_view attribute(clang_getCursorSpelling(cursor));
                 if (!attribute.value().is_empty() && attribute.value() != "rsl_reflect_attr"_sv)
                 {
-                    rsl::format_to(
-                            context->contentBuffer,
-                            ".add_attribute({}{})",
-                            attribute.value(),
-                            attribute.value().back() == ')' ? ""_sv : "()"_sv);
+                    context->contentBuffer.append(".add_attribute("_sv);
+                    context->contentBuffer.append(attribute.value());
+                    if (attribute.value().back() != ')')
+                    {
+                        context->contentBuffer.append("()"_sv);
+                    }
+                    context->contentBuffer.append(')');
                 }
                 return CXChildVisit_Continue;
             }
@@ -73,12 +76,11 @@ namespace rrg
 
     rsl::result<void> generate_class(rsl::dynamic_string& contentBuffer, CXCursor cursor)
     {
+        contentBuffer.append(".add_type(\""_sv);
+        contentBuffer.append(cx_string_view(clang_getCursorSpelling(cursor)).value());
+        contentBuffer.append("\"_sv,rrfl::type_builder{}");
+
         class_context context{ .contentBuffer = contentBuffer, .result = {} };
-
-        CXString cursorSpelling = clang_getCursorSpelling(cursor);
-        rsl::format_to(contentBuffer, ".add_type(\"{}\"_sv)", clang_getCString(cursorSpelling));
-        clang_disposeString(cursorSpelling);
-
         clang_visitChildren(cursor, [](CXCursor cursor, CXCursor, CXClientData ctx) {
             return visit_members(cursor, { static_cast<class_context*>(ctx) });
         }, &context);
@@ -87,6 +89,8 @@ namespace rrg
         {
             return context.result.propagate();
         }
+
+        contentBuffer.append(')');
 
         return rsl::okay;
     }
