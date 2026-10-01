@@ -78,7 +78,7 @@ namespace rrg
     {
         contentBuffer.append(".add_type(\""_sv);
         contentBuffer.append(cx_string_view(clang_getCursorSpelling(cursor)).value());
-        contentBuffer.append("\"_sv,rrfl::type_builder{}");
+        contentBuffer.append("\"_sv,rrfl::type_builder{}"_sv);
 
         class_context context{ .contentBuffer = contentBuffer, .result = {} };
         clang_visitChildren(cursor, [](CXCursor cursor, CXCursor, CXClientData ctx) {

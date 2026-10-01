@@ -74,7 +74,7 @@ namespace rrg
                 return CXChildVisit_Continue;
             }
 
-            CXCursorKind kind = clang_getCursorKind(cursor);
+            const CXCursorKind kind = clang_getCursorKind(cursor);
 
             switch (kind)
             {
@@ -94,6 +94,7 @@ namespace rrg
                     break;
                 }
                 case CXCursor_FieldDecl:
+                case CXCursor_VarDecl:
                 {
                     if (has_reflect_attribute(cursor))
                     {
@@ -121,7 +122,7 @@ namespace rrg
                     }
                     break;
                 }
-                default:
+                case CXCursor_Namespace:
                 {
                     context->scopes.push_back({ .spelling = cx_string_view(clang_getCursorSpelling(cursor)), .isGenerated = false });
 
@@ -136,6 +137,11 @@ namespace rrg
                         return CXChildVisit_Break;
                     }
                     break;
+                }
+                default:
+                {
+                    rythe_debugbreak_if_debugger_attached();
+                    rlog::error("UNHANDLED: {}", cx_string_view(clang_getCursorSpelling(cursor)).value());
                 }
             }
 

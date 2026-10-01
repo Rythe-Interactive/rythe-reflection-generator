@@ -9,19 +9,22 @@ namespace test
         int get_value() { return value; }
     };
 
-    class [[rsl_reflect()]] test_class
+    namespace test2
     {
-    public:
-        test_class() = default;
-        test_class(const test_struct& value)
-            : m_value(value)
-        {}
+        class [[rsl_reflect()]] test_class
+        {
+        public:
+            test_class() = default;
+            test_class(const test_struct& value)
+                : m_value(value)
+            {}
 
-        const test_struct& get_value(const int*, float) const noexcept { return m_value; }
+            const test_struct& get_value(const int*, float) const noexcept { return m_value; }
 
-    private:
-        test_struct m_value;
-    };
+        private:
+            test_struct m_value;
+        };
+    } // namespace test2
 
-    const float globalVal = 0.567f;
+    [[rsl_reflect()]] constexpr float globalVal = 0.567f;
 } // namespace test

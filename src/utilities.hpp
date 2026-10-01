@@ -47,7 +47,7 @@ namespace rrg
         // Primitive types (e.g. bool) return no declaration here, so just use the display name
         if (displayName.value().is_empty())
         {
-            displayName = cx_string_view(clang_getTypeSpelling(type));
+            displayName = cx_string_view(clang_getTypeSpelling(clang_getUnqualifiedType(type)));
         }
 
         contentBuffer.append(displayName.value());

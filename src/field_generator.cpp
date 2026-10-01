@@ -32,9 +32,11 @@ namespace rrg
                     }
                     context->contentBuffer.append(')');
                 }
+
+                return CXChildVisit_Continue;
             }
 
-            return CXChildVisit_Continue;
+            return CXChildVisit_Break;
         }
     } // namespace
 
@@ -42,7 +44,7 @@ namespace rrg
     {
         contentBuffer.append(".add_field(\""_sv);
         contentBuffer.append(cx_string_view(clang_getCursorSpelling(cursor)).value());
-        contentBuffer.append("\"_sv,rrfl::field_builder<");
+        contentBuffer.append("\"_sv,rrfl::field_builder<"_sv);
         append_reconstructed_type_name(contentBuffer, clang_getCursorType(cursor));
 
         contentBuffer.append(">{}"_sv);
@@ -56,9 +58,15 @@ namespace rrg
             return context.result.propagate();
         }
 
-        contentBuffer.append(",rrfl::access_spec_type::"_sv);
-        contentBuffer.append(get_access_specifier_spelling(clang_getCXXAccessSpecifier(cursor)));
-        contentBuffer.append("_access)"_sv);
+        const CX_CXXAccessSpecifier accessSpecifier = clang_getCXXAccessSpecifier(cursor);
+        if (accessSpecifier != CX_CXXAccessSpecifier::CX_CXXInvalidAccessSpecifier)
+        {
+            contentBuffer.append(",rrfl::access_spec_type::"_sv);
+            contentBuffer.append(get_access_specifier_spelling(accessSpecifier));
+            contentBuffer.append("_access"_sv);
+        }
+
+        contentBuffer.append(')');
 
         return rsl::okay;
     }

@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
     const rfs::view intermediatesPath = debug_no_intermediates ? ""_fsv : rfs::view(cli.get_param({ "intermediates", "i" }), true) / "rrg/"_sv;
     bool hasIntermediatesPath = intermediatesPath.is_valid(true);
 
-    if (!intermediatesPath.exists())
+    if (hasIntermediatesPath && !intermediatesPath.exists())
     {
         rlog::info("Creating intermediates folder.");
         rsl::result<void> creationResult = intermediatesPath.create();
@@ -332,7 +332,6 @@ int main(int argc, char* argv[])
                 }
             }
         }
-
 
         rlog::info("Generating files:");
         {
